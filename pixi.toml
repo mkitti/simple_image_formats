@@ -1,0 +1,24 @@
+[project]
+channels = ["conda-forge"]
+description = "Add a short description here"
+name = "simple_image_formats"
+platforms = ["win-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+h5py = ">=3.11.0,<4"
+libtiff = ">=4.6.0,<5"
+python = "3.10.*"
+numpy = "1.*"
+ipython = ">=8.27.0,<9"
+hdf5 = ">=1.14.3,<2"
+crc32c = ">=2.7.post1,<3"
+hexdump = ">=3.3,<4"
+pylibtiff = ">=0.6.1,<0.7"
+notebook = ">=7.2.2,<8"
+ipykernel = ">=6.29.5,<7"
+
+[pypi-dependencies]
+tensorstore = ">=0.1.65, <0.2"
