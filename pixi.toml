@@ -2,7 +2,7 @@
 channels = ["conda-forge"]
 description = "Add a short description here"
 name = "simple_image_formats"
-platforms = ["win-64"]
+platforms = ["win-64", "linux-64"]
 version = "0.1.0"
 
 [tasks]
