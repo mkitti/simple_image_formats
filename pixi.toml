@@ -1,8 +1,8 @@
 [project]
 channels = ["conda-forge"]
-description = "Add a short description here"
+description = "Simplifying image formats by consolidating file metadata into headers and footers"
 name = "simple_image_formats"
-platforms = ["win-64", "linux-64"]
+platforms = ["win-64", "linux-64", "osx-arm64"]
 version = "0.1.0"
 
 [tasks]
@@ -10,13 +10,13 @@ version = "0.1.0"
 [dependencies]
 h5py = ">=3.11.0,<4"
 libtiff = ">=4.6.0,<5"
-python = "3.10.*"
-numpy = "1.*"
+python = "3.13.*"
+numpy = "2.*"
 ipython = ">=8.27.0,<9"
 hdf5 = ">=1.14.3,<2"
 crc32c = ">=2.7.post1,<3"
 hexdump = ">=3.3,<4"
-pylibtiff = ">=0.6.1,<0.7"
+pylibtiff = "0.7.*"
 notebook = ">=7.2.2,<8"
 ipykernel = ">=6.29.5,<7"
 
