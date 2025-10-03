@@ -1,3 +1,5 @@
+"""A collection of methods for creating header-only files for different formats."""
+
 import h5py
 import numpy as np
 from crc32c import crc32c
@@ -7,18 +9,47 @@ import shutil
 import os
 import tensorstore as ts
 
-def hdf5_header_only(filename, shape, dtype, *, chunks=None, header_size=None, userblock_size=None, dataset_name="data", zarr_index=False):
+
+def hdf5_header_only(
+    filename: str,
+    shape: tuple,
+    dtype: np.dtype,
+    *,
+    chunks: tuple | None = None,
+    header_size: int | None = None,
+    userblock_size: int | None = None,
+    dataset_name: str = "data",
+    zarr_index: bool = False,
+) -> None:
+    """Creates an HDF5 file with only a header, no data.
+
+    Args:
+        filename (str): The name of the HDF5 file to create.
+        shape (tuple): The shape of the dataset.
+        dtype (str or np.dtype): The data type of the dataset.
+        chunks (tuple, optional): The chunk shape for the dataset. Defaults to None.
+        header_size (int, optional): The size of the HDF5 header. Defaults to None.
+        userblock_size (int, optional): The size of the user block. Defaults to None.
+        dataset_name (str, optional): The name of the dataset. Defaults to "data".
+        zarr_index (bool, optional): Whether to create a zarr index. Defaults to False.
+    """
     if not header_size:
         if chunks:
             nchunks = np.prod(-(shape // -np.array(chunks)))
-            header_size = 1024 + nchunks*16
+            header_size = 1024 + nchunks * 16
             header_size = 2 ** np.ceil(np.log2(header_size)).astype("int")
         else:
             header_size = 2048
 
     dtype = np.dtype(dtype)
-    
-    with h5py.File(filename, "w", meta_block_size=header_size, userblock_size=userblock_size, libver="v112") as h5f:
+
+    with h5py.File(
+        filename,
+        "w",
+        meta_block_size=header_size,
+        userblock_size=userblock_size,
+        libver="v112",
+    ) as h5f:
         dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
         dcpl.set_fill_time(h5py.h5d.FILL_TIME_NEVER)
         dcpl.set_alloc_time(h5py.h5d.ALLOC_TIME_EARLY)
@@ -26,20 +57,29 @@ def hdf5_header_only(filename, shape, dtype, *, chunks=None, header_size=None, u
             dcpl.set_chunk(chunks)
         type_id = h5py.h5t.py_create(dtype, logical=1)
         space_id = h5py.h5s.create_simple(shape, shape)
-        h5data = h5py.h5d.create(h5f.id, dataset_name.encode('utf-8'), type_id, space_id, dcpl)
+        h5data = h5py.h5d.create(
+            h5f.id, dataset_name.encode("utf-8"), type_id, space_id, dcpl
+        )
 
         if zarr_index:
             offsets_and_nbytes = get_hdf5_chunk_offsets_and_bytes(h5data)
             # Older versions of HDF5 than 1.14.3 do not incorporate userblock_size into offsets
             # https://github.com/HDFGroup/hdf5/issues/3003
             if userblock_size and h5py.h5.get_libversion() < (1, 14, 3):
-                offsets_and_nbytes[:,0] += userblock_size
+                offsets_and_nbytes[:, 0] += userblock_size
             zindex_bytes = offsets_and_nbytes.tobytes()
             zindex_bytes += int.to_bytes(crc32c(zindex_bytes), 4, "little")
-            zindex_dataset = h5f.create_dataset("zarrindex",  (nchunks*16+4,), "uint8")
+            zindex_dataset = h5f.create_dataset("zarrindex", (nchunks * 16 + 4,), "uint8")
             zindex_dataset[:] = np.frombuffer(zindex_bytes, dtype="uint8")
 
-def simple_zarr_index(h5parent, h5dataset):
+
+def simple_zarr_index(h5parent: h5py.File | h5py.Group, h5dataset: h5py.Dataset) -> None:
+    """Creates a simple zarr index for an HDF5 dataset.
+
+    Args:
+        h5parent (h5py.File or h5py.Group): The parent HDF5 object.
+        h5dataset (h5py.Dataset): The HDF5 dataset to index.
+    """
     if type(h5dataset) == h5py.Dataset:
         h5dataset = h5dataset.id
 
@@ -57,10 +97,19 @@ def simple_zarr_index(h5parent, h5dataset):
 
     zindex_bytes = chunk_offsets_and_nbytes.tobytes()
     zindex_bytes += int.to_bytes(crc32c(zindex_bytes), 4, "little")
-    zindex_dataset = h5parent.create_dataset("zarrindex",  (nchunks*16+4,), "uint8")
+    zindex_dataset = h5parent.create_dataset("zarrindex", (nchunks * 16 + 4,), "uint8")
     zindex_dataset[:] = np.frombuffer(zindex_bytes, dtype="uint8")
 
-def get_hdf5_chunk_offsets_and_bytes(h5dataset):
+
+def get_hdf5_chunk_offsets_and_bytes(h5dataset: h5py.Dataset) -> np.ndarray:
+    """Gets the chunk offsets and byte lengths for an HDF5 dataset.
+
+    Args:
+        h5dataset (h5py.Dataset): The HDF5 dataset.
+
+    Returns:
+        np.ndarray: A 2D numpy array where each row contains the offset and length of a chunk.
+    """
     if type(h5dataset) == h5py.Dataset:
         h5dataset = h5dataset.id
 
@@ -88,7 +137,21 @@ def get_hdf5_chunk_offsets_and_bytes(h5dataset):
             offsets_and_lengths[i, 1] = ci.size
     return offsets_and_lengths
 
-def write_tiff_header(filename, shape, dtype, *, chunks=None):
+
+def write_tiff_header(
+    filename: str, shape: tuple, dtype: np.dtype, *, chunks: tuple | None = None
+) -> tuple[int, int]:
+    """Writes a TIFF header to a file.
+
+    Args:
+        filename (str): The name of the TIFF file.
+        shape (tuple): The shape of the image.
+        dtype (str or np.dtype): The data type of the image.
+        chunks (tuple, optional): The tile shape. Defaults to None.
+
+    Returns:
+        tuple: A tuple containing the size of the header and the offset to the first tile.
+    """
     dtype = np.dtype(dtype)
     bits = dtype.itemsize * 8
 
@@ -117,12 +180,12 @@ def write_tiff_header(filename, shape, dtype, *, chunks=None):
     tif.close()
 
     with open(filename, "r") as f:
-        f.seek(0,2)
+        f.seek(0, 2)
         sz = f.tell()
 
     with open(filename, "ab+") as f:
         f.seek(sz, 0)
-        f.write(np.zeros((1024+2048-sz,), dtype="uint8"))
+        f.write(np.zeros((1024 + 2048 - sz,), dtype="uint8"))
 
     tif = TIFF.open(filename, "a+")
     tif.SetDirectory(0)
@@ -134,57 +197,88 @@ def write_tiff_header(filename, shape, dtype, *, chunks=None):
 
     return sz, first_offset.value
 
-def tiff_hdf5_zarr(filename, shape, dtype, *, chunks=None):
+
+def tiff_hdf5_zarr(
+    filename: str, shape: tuple, dtype: np.dtype, *, chunks: tuple | None = None
+) -> None:
+    """Creates a file with a TIFF header, an HDF5/Zarr header, and no data.
+
+    Args:
+        filename (str): The name of the file to create.
+        shape (tuple): The shape of the data.
+        dtype (str or np.dtype): The data type of the data.
+        chunks (tuple, optional): The chunk shape. Defaults to None.
+    """
     userblock_size = 1024
-    hdf5_header_only(filename, shape, dtype, zarr_index=True, chunks=chunks, userblock_size=userblock_size)
-    write_tiff_header("temp.tiff", shape, dtype, chunks=(128,128))
-    
+    hdf5_header_only(
+        filename, shape, dtype, zarr_index=True, chunks=chunks, userblock_size=userblock_size
+    )
+    write_tiff_header("temp.tiff", shape, dtype, chunks=(128, 128))
+
     with open("temp.tiff", "rb") as f:
         userblock = f.read(userblock_size)
-    
+
     with open(filename, "rb+") as f:
         f.write(userblock)
 
-def read_header_footer(filename="test.tiff.hdf5.zarr", header_size=3072, footer_size=68):
+
+def read_header_footer(
+    filename: str = "test.tiff.hdf5.zarr", header_size: int = 3072, footer_size: int = 68
+) -> tuple[bytes, bytes]:
+    """Reads the header and footer of a file.
+
+    Args:
+        filename (str, optional): The name of the file. Defaults to "test.tiff.hdf5.zarr".
+        header_size (int, optional): The size of the header. Defaults to 3072.
+        footer_size (int, optional): The size of the footer. Defaults to 68.
+
+    Returns:
+        tuple: A tuple containing the header and footer as bytes.
+    """
     with open(filename, "rb") as f:
         header = f.read(header_size)
         f.seek(-footer_size, 2)
         footer = f.read(footer_size)
     return header, footer
 
-def create_zarr3(path):
-    ds = ts.open({
-        "driver": "zarr3",
-        "kvstore": {
-            "driver": "file",
-            "path": path
-        },
-        "metadata": {
-            "shape": [256,256],
-            "data_type": "uint16",
-            "codecs": [
-                {
-                    "name": "sharding_indexed",
-                    "configuration": {
-                        "chunk_shape": [128,128]
-                    }
-                }
-            ]
-        },
-        "create": True,
-        "delete_existing": True
-    }).result()
 
-def run_demo():
-    tiff_hdf5_zarr("test.tiff.hdf5.zarr", (256,256), "uint16", chunks=(128,128))
+def create_zarr3(path: str) -> None:
+    """Creates a Zarr v3 dataset using tensorstore.
+
+    Args:
+        path (str): The path to the Zarr dataset.
+    """
+    ds = ts.open(
+        {
+            "driver": "zarr3",
+            "kvstore": {"driver": "file", "path": path},
+            "metadata": {
+                "shape": [256, 256],
+                "data_type": "uint16",
+                "codecs": [
+                    {
+                        "name": "sharding_indexed",
+                        "configuration": {"chunk_shape": [128, 128]},
+                    }
+                ],
+            },
+            "create": True,
+            "delete_existing": True,
+        }
+    ).result()
+
+
+def run_demo() -> None:
+    """Runs a demonstration of the header creation and file manipulation functions."""
+    tiff_hdf5_zarr("test.tiff.hdf5.zarr", (256, 256), "uint16", chunks=(128, 128))
 
     create_zarr3("demo/test.zarr")
 
     header, footer = read_header_footer("test.tiff.hdf5.zarr")
-    A = np.full((128, 128), 0, dtype="uint16") 
-    B = np.full((128, 128), 2**14-2, dtype="uint16")
-    C = np.full((128, 128), 2*2**14-2, dtype="uint16")
-    D = np.full((128, 128), 3*2**14-2, dtype="uint16")    
+    A = np.full((128, 128), 0, dtype="uint16")
+    B = np.full((128, 128), 2**14 - 2, dtype="uint16")
+    C = np.full((128, 128), 2 * 2**14 - 2, dtype="uint16")
+    D = np.full((128, 128), 3 * 2**14 - 2, dtype="uint16")
 
     os.makedirs("demo/test.zarr/c/0/")
 
@@ -195,7 +289,7 @@ def run_demo():
         f.write(C)
         f.write(D)
         f.write(footer)
-    
+
     shutil.copyfile("demo/demo.hdf5.zarr.tiff", "demo/demo.tiff")
     shutil.copyfile("demo/demo.hdf5.zarr.tiff", "demo/demo.h5")
     shutil.copyfile("demo/demo.hdf5.zarr.tiff", "demo/test.zarr/c/0/0")
