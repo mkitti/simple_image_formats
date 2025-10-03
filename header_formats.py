@@ -13,7 +13,6 @@ def hdf5_header_only(filename, shape, dtype, *, chunks=None, header_size=None, u
             nchunks = np.prod(-(shape // -np.array(chunks)))
             header_size = 1024 + nchunks*16
             header_size = 2 ** np.ceil(np.log2(header_size)).astype("int")
-            print(header_size)
         else:
             header_size = 2048
 
@@ -30,9 +29,10 @@ def hdf5_header_only(filename, shape, dtype, *, chunks=None, header_size=None, u
         h5data = h5py.h5d.create(h5f.id, dataset_name.encode('utf-8'), type_id, space_id, dcpl)
 
         if zarr_index:
-            #simple_zarr_index(h5f, h5data)
             offsets_and_nbytes = get_hdf5_chunk_offsets_and_bytes(h5data)
-            if userblock_size:
+            # Older versions of HDF5 than 1.14.3 do not incorporate userblock_size into offsets
+            # https://github.com/HDFGroup/hdf5/issues/3003
+            if userblock_size and h5py.h5.get_libversion() < (1, 14, 3):
                 offsets_and_nbytes[:,0] += userblock_size
             zindex_bytes = offsets_and_nbytes.tobytes()
             zindex_bytes += int.to_bytes(crc32c(zindex_bytes), 4, "little")
@@ -47,16 +47,6 @@ def simple_zarr_index(h5parent, h5dataset):
     shape = h5dataset.shape
     chunks = h5dataset.get_create_plist().get_chunk()
     if chunks:
-        """
-        nchunks = np.prod(-(shape // -np.array(chunks)))
-        chunk_offsets = []
-        h5dataset.chunk_iter(lambda x: chunk_offsets.append(x.byte_offset))
-        chunk_offsets = np.array(chunk_offsets, dtype="uint64")
-        chunk_nbytes = np.full_like(
-            chunk_offsets,
-            np.prod(chunks) * dtype.itemsize
-        )
-        """
         chunk_offsets_and_nbytes = get_hdf5_chunk_offsets_and_bytes(h5dataset)
         nchunks = chunk_offsets_and_nbytes.shape[0]
     else:
@@ -74,7 +64,6 @@ def get_hdf5_chunk_offsets_and_bytes(h5dataset):
     if type(h5dataset) == h5py.Dataset:
         h5dataset = h5dataset.id
 
-    #dtype = h5dataset.dtype
     shard_shape = h5dataset.shape
     chunk_shape = h5dataset.get_create_plist().get_chunk()
     nchunks = np.prod(-(shard_shape // -np.array(chunk_shape)))
@@ -118,26 +107,14 @@ def write_tiff_header(filename, shape, dtype, *, chunks=None):
             tif.SetField("TILEDEPTH", chunks[2])
         tif.WriteDirectory()
         tif.SetDirectory(0)
-        #tif.write_tiles(np.full(shape, 0x1234, dtype="uint16"))
     else:
-        #offsets = np.array([2048+1024], dtype="uint32")
-        #nbytes = np.array([np.prod(shape) * dtype.itemsize], dtype="uint32")
         tif.SetField("TILELENGTH", shape[0])
         tif.SetField("TILEWIDTH", shape[1])
         if len(shape) > 2:
             tif.SetField("TILEDEPTH", shape[2])
         tif.WriteDirectory()
         tif.SetDirectory(0)
-        #tif.write_tiles(np.full(shape, 0x1234, dtype="uint16"))
     tif.close()
-
-    #tif = TIFF.open(filename, "r")
-    #tif.SetDirectory(0)
-    #first_offset = tif.GetField("TileOffsets")
-    #tif.close()
-
-    #first_offset = first_offset.value
-    #print(first_offset)
 
     with open(filename, "r") as f:
         f.seek(0,2)
