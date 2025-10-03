@@ -22,3 +22,9 @@ ipykernel = ">=6.29.5,<7"
 
 [pypi-dependencies]
 tensorstore = ">=0.1.65, <0.2"
+
+[feature.dev.dependencies]
+nbconvert = "*"
+
+[environments]
+dev = ["dev"]
